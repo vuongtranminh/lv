@@ -1,0 +1,95 @@
+═══════════════════════════════════════════════════════════════
+  Scenario 3 — Token comparison: Mode A vs Mode B               
+  Model: claude-haiku-4-5
+═══════════════════════════════════════════════════════════════
+
+─── MODE A: paper-style (nhồi all context) ──────────────
+  System prompt chars: 2,800  (700 tokens ≈)
+  User message chars:  554  (138 tokens ≈)
+  Total chars:         3,354
+
+  Tool calls: 0
+  Wall time:  14.16s
+  Usage:      input=10, cache_create=0, cache_read=19481, output=1080
+
+─── MODE B: MCP tool-use ────────────────────────────────
+  System prompt chars: 2,454  (613 tokens ≈)
+  User message chars:  160  (40 tokens ≈)
+  Total chars (initial): 2,614
+  NOTE: Mode B adds tool calls + tool results during the run.
+
+   📤 [get_threat_summary] kết quả trả về cho Claude:
+      {
+        "phase": "MissionA",
+        "threats": [
+          {
+            "hostname": "host_a",
+            "compromise_level": "admin",
+            "iocs": [
+              "escalate.sh"
+            ],
+            "suspicious_processes": 1,
+            "connections": []
+          }
+        ],
+        "last_action": "None",
+        "last_action_status": "TRUE"
+      }
+
+   📤 [get_comms_decoded] kết quả trả về cho Claude:
+      [
+        {
+          "from": "blue_agent_0",
+          "reports_malicious_in_other_networks": [],
+          "compromise_level_in_sender_net": "none",
+          "sender_busy": false
+        },
+        {
+          "from": "blue_agent_1",
+          "reports_malicious_in_other_networks": [],
+          "compromise_level_in_sender_net": "none",
+          "sender_busy": false
+        },
+        {
+          "from": "blue_agent_2",
+          "reports_malicious_in_other_networks": [],
+          "compromise_level_in_sender_net": "admin",
+          "sender_busy": true
+        },
+        {
+          "from": "blue_agent_3",
+          "reports_malicious_in_other_networks": [],
+          "compromise_level_in_sender_net": "remote_exploit"
+            ... (đã rút gọn)
+
+   ⚖️  RoE thẩm định propose_analyse({'hostname': 'host_a'}): ✓ ALLOWED
+   📤 [propose_analyse] kết quả trả về cho Claude:
+      {
+        "status": "approved",
+        "scheduled": "Analyse {'hostname': 'host_a'}"
+      }
+
+  Tool calls: 4
+  Wall time:  29.03s
+  Usage:      input=31, cache_create=8521, cache_read=75845, output=2565
+
+═══════════════════════════════════════════════════════════════
+  Comparison summary                                            
+═══════════════════════════════════════════════════════════════
+Metric                                            Mode A          Mode B          Δ
+──────────────────────────────────────────────────────────────────────────────────
+System prompt (chars)                              2,800           2,454     -12.4%
+User message (chars)                                 554             160     -71.1%
+Total initial prompt (chars)                       3,354           2,614     -22.1%
+
+SDK input_tokens                                      10              31    +210.0%
+SDK cache_creation_input_tokens                        0           8,521        n/a
+SDK cache_read_input_tokens                       19,481          75,845    +289.3%
+SDK output_tokens                                  1,080           2,565    +137.5%
+TOTAL input (all caches)                          19,491          84,397    +333.0%
+
+Wall time (s)                                      14.16           29.03    +105.0%
+Tool calls                               1 (single shot)               4
+
+──────────────────────────────────────────────────────────────────────────────────
+  (a) MCP reduces controlled prompt size: ✓ PASS

@@ -1,0 +1,13 @@
+✓ test_decode_commvector_no_compromise
+✓ test_decode_commvector_admin_compromise_busy
+✓ test_decode_skips_self
+✓ test_extract_state_with_admin_ioc
+✓ test_restore_denied_when_no_admin
+✓ test_restore_allowed_when_admin
+✓ test_restore_denied_when_host_not_in_threats
+✓ test_block_first_allowed_second_denied
+✓ test_block_different_zones_independent
+✓ test_decoy_max_two_per_host
+✓ test_unknown_action_allowed_by_default
+
+11/11 passed
