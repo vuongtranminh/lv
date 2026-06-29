@@ -14,6 +14,9 @@ class StepContext:
     # Mode flags — STICKY (không reset mỗi step)
     mcp_enabled: bool = True
     roe_enabled: bool = True
+    # Sprint 3 — Setup C-active: khi True, propose_sleep gọi validate
+    # (rule_no_sleep_when_threat) thay vì bypass RoE.
+    active_mode: bool = False
 
     # Detailed logger — STICKY (set bởi ClaudeDefenderPolicy mỗi episode)
     logger = None
@@ -26,10 +29,11 @@ class StepContext:
         cls.rejected_attempts = []
 
     @classmethod
-    def set_mode(cls, mcp_enabled: bool, roe_enabled: bool):
+    def set_mode(cls, mcp_enabled: bool, roe_enabled: bool, active_mode: bool = False):
         """Set mode flags — gọi 1 lần khi khởi tạo policy."""
         cls.mcp_enabled = mcp_enabled
         cls.roe_enabled = roe_enabled
+        cls.active_mode = active_mode
 
     @classmethod
     def set_logger(cls, logger):

@@ -47,15 +47,19 @@ CAGE4_SUBNETS = [
 
 DEFAULT_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
 MCP_PROMPT_PATH = Path(__file__).parent / "prompt.md"
+MCP_ACTIVE_PROMPT_PATH = Path(__file__).parent / "prompt_active.md"
 
 
 class ClaudeDefenderPolicy(Policy):
-    """Blue agent policy với 3 mode toggle.
+    """Blue agent policy với mode toggle.
 
     config keys:
         agent_name: str (vd "blue_agent_4")
         mcp_enabled: bool (default True)
         roe_enabled: bool (default True)
+        active_mode: bool (default False) — Sprint 3: bật rule_no_sleep_when_threat
+            và load prompt_active.md (buộc agent hành động khi có threat).
+            Chỉ có hiệu lực khi mcp_enabled=True và roe_enabled=True.
     """
 
     def __init__(self, observation_space, action_space, config=None):
@@ -67,16 +71,23 @@ class ClaudeDefenderPolicy(Policy):
 
         self.mcp_enabled = config.get("mcp_enabled", True)
         self.roe_enabled = config.get("roe_enabled", True)
+        self.active_mode = config.get("active_mode", False)
 
         # Validate mode combination
         if self.roe_enabled and not self.mcp_enabled:
             raise ValueError("Không thể bật RoE khi MCP tắt (RoE phụ thuộc MCP tool).")
+        if self.active_mode and not (self.mcp_enabled and self.roe_enabled):
+            raise ValueError(
+                "active_mode=True yêu cầu cả mcp_enabled và roe_enabled phải True."
+            )
 
         # Set sticky mode flags vào StepContext (tools đọc)
-        StepContext.set_mode(self.mcp_enabled, self.roe_enabled)
+        StepContext.set_mode(self.mcp_enabled, self.roe_enabled, self.active_mode)
 
         self.client = anyio.from_thread.start_blocking_portal  # placeholder
-        self.mcp_system_prompt = MCP_PROMPT_PATH.read_text(encoding="utf-8")
+        # Sprint 3: load prompt_active khi active_mode bật
+        prompt_path = MCP_ACTIVE_PROMPT_PATH if self.active_mode else MCP_PROMPT_PATH
+        self.mcp_system_prompt = prompt_path.read_text(encoding="utf-8")
         self.paper_system_prompt = PAPER_SYSTEM_PROMPT
 
         self.last_action_str = "None"
@@ -98,6 +109,7 @@ class ClaudeDefenderPolicy(Policy):
             "agent_name": self.name,
             "mcp_enabled": self.mcp_enabled,
             "roe_enabled": self.roe_enabled,
+            "active_mode": self.active_mode,
             "model": DEFAULT_MODEL,
             "audit_csv_path": str(audit_path),
             "system_prompt_mcp_hash": str(hash(self.mcp_system_prompt))[:16],
@@ -110,6 +122,8 @@ class ClaudeDefenderPolicy(Policy):
 
     def _mode_suffix(self) -> str:
         if self.mcp_enabled and self.roe_enabled:
+            if self.active_mode:
+                return "setupC_active"
             return "setupC_mcp_roe"
         if self.mcp_enabled and not self.roe_enabled:
             return "setupB_mcp_only"
@@ -133,7 +147,7 @@ class ClaudeDefenderPolicy(Policy):
     def compute_single_action(self, obs=None, prev_action=None, **kwargs):
         t_step_start = time.monotonic()
         StepContext.reset()
-        StepContext.set_mode(self.mcp_enabled, self.roe_enabled)
+        StepContext.set_mode(self.mcp_enabled, self.roe_enabled, self.active_mode)
         StepContext.set_logger(self.detailed)
         self.detailed.set_step(self.step)
         self.detailed.step_start(raw_observation=obs)

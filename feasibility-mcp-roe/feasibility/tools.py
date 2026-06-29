@@ -259,14 +259,39 @@ async def propose_block_traffic(args):
     "0 threats VÀ get_comms_decoded báo all 'none' compromise, HOẶC (2) "
     "đang chờ kết quả Analyse trước (last_action_status=IN_PROGRESS). "
     "KHÔNG dùng Sleep nếu có host trong threats — phải Analyse/Remove/"
-    "Restore. Sleep luôn được RoE chấp nhận.",
+    "Restore. Ở chế độ ACTIVE (Setup C-active), Sleep bị deny khi state.threats "
+    "không rỗng.",
     {"reason": str},
 )
 async def propose_sleep(args):
     logger = get_logger()
-    logger.tool_call("propose_sleep", {"reason": args.get("reason", "")})
-    StepContext.proposed_action = ("Sleep", {}, args.get("reason", ""))
-    logger.action_proposed("Sleep", {}, args.get("reason", ""))
+    reason = args.get("reason", "")
+    logger.tool_call("propose_sleep", {"reason": reason})
+
+    # Sprint 3 — Setup C-active: chạy RoE.validate cho Sleep
+    # (rule_no_sleep_when_threat deny khi state.threats không rỗng).
+    if StepContext.active_mode:
+        verdict = policy_engine.validate("Sleep", {}, StepContext.state or {})
+        logger.roe_verdict("Sleep", {},
+                           allowed=verdict.allowed,
+                           reason=verdict.reason,
+                           suggested=verdict.suggested)
+        _vlog_verdict("propose_sleep", verdict, {})
+        if not verdict.allowed:
+            StepContext.rejected_attempts.append(
+                ("Sleep", "(none)", verdict.reason)
+            )
+            payload = {
+                "status": "denied",
+                "reason": verdict.reason,
+                "suggested": verdict.suggested,
+            }
+            logger.tool_result("propose_sleep", payload)
+            _vlog_result("propose_sleep", payload)
+            return _text_result(payload)
+
+    StepContext.proposed_action = ("Sleep", {}, reason)
+    logger.action_proposed("Sleep", {}, reason)
     payload = {"status": "approved", "scheduled": "Sleep"}
     logger.tool_result("propose_sleep", payload)
     _vlog_result("propose_sleep", payload)

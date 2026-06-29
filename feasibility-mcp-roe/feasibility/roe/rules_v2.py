@@ -145,6 +145,32 @@ def rule_no_block_when_busy(state: dict, params: dict) -> Verdict:
     return Verdict(True)
 
 
+def rule_no_sleep_when_threat(state: dict, params: dict) -> Verdict:
+    """[ACTIVE MODE — Sprint 3] Cấm Sleep khi state.threats không rỗng.
+
+    Mục đích: chứng minh MCP+RoE có giá trị phòng thủ chủ động, không phải
+    chỉ né phạt bằng cách ngủ. Chỉ áp dụng khi StepContext.active_mode=True
+    (propose_sleep gọi validate khi cờ này bật).
+    """
+    threats = state.get("threats", [])
+    if threats:
+        first_threat = threats[0]
+        host = first_threat.get("hostname", "?")
+        level = first_threat.get("compromise_level", "?")
+        return Verdict(
+            allowed=False,
+            reason=(
+                f"Sleep bị cấm khi có threat — host '{host}' đang ở mức "
+                f"compromise '{level}'. Phải hành động (Analyse/Remove/Restore)."
+            ),
+            suggested=(
+                f"Làm theo recommended_action: nếu compromise=admin → "
+                f"propose_restore('{host}'); nếu user → propose_remove('{host}')."
+            ),
+        )
+    return Verdict(True)
+
+
 # ─── RATE-LIMIT RULES (4 rule) ───────────────────────────────────────────────
 
 def rule_block_rate_limit(state: dict, params: dict) -> Verdict:
@@ -229,6 +255,9 @@ RULES_V2 = {
     "DeployDecoy": [
         rule_decoy_per_host,
         rule_decoy_global_quota,
+    ],
+    "Sleep": [
+        rule_no_sleep_when_threat,
     ],
     # Analyse không có rule → luôn allow (action an toàn)
 }
