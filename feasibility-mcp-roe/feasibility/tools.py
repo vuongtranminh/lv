@@ -18,6 +18,7 @@ import json
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
 from .context import StepContext
+from .detailed_logger import get_logger
 from .roe import policy_engine
 
 
@@ -75,6 +76,7 @@ def _text_result(payload) -> dict:
     {},
 )
 async def get_threat_summary(args):
+    get_logger().tool_call("get_threat_summary", {})
     state = StepContext.state or {}
     payload = {
         "phase": state.get("mission_phase"),
@@ -82,6 +84,7 @@ async def get_threat_summary(args):
         "last_action": state.get("last_action"),
         "last_action_status": state.get("last_action_status"),
     }
+    get_logger().tool_result("get_threat_summary", payload)
     _vlog_result("get_threat_summary", payload)
     return _text_result(payload)
 
@@ -95,8 +98,10 @@ async def get_threat_summary(args):
     {},
 )
 async def get_comms_decoded(args):
+    get_logger().tool_call("get_comms_decoded", {})
     state = StepContext.state or {}
     payload = state.get("comms", [])
+    get_logger().tool_result("get_comms_decoded", payload)
     _vlog_result("get_comms_decoded", payload)
     return _text_result(payload)
 
@@ -104,8 +109,32 @@ async def get_comms_decoded(args):
 # ─── Action-proposal tools (every one goes through RoE) ───────────────────────
 
 def _propose(action_type: str, params: dict, reason: str) -> dict:
+    logger = get_logger()
+    tool_name = f"propose_{action_type.lower()}"
+    logger.tool_call(tool_name, {**params, "reason": reason})
+
+    # BYPASS RoE nếu mode flag tắt (dùng cho Setup B — MCP only)
+    if not StepContext.roe_enabled:
+        StepContext.proposed_action = (action_type, params, reason)
+        payload = {
+            "status": "approved",
+            "scheduled": f"{action_type} {params}",
+            "roe_bypassed": True,
+        }
+        logger.roe_verdict(action_type, params, allowed=True,
+                           reason="RoE bypass (mode flag off)", suggested="")
+        logger.action_proposed(action_type, params, reason)
+        logger.tool_result(tool_name, payload)
+        _vlog_result(tool_name, payload)
+        return _text_result(payload)
+
+    # Đường thường: chạy RoE.validate()
     verdict = policy_engine.validate(action_type, params, StepContext.state or {})
-    _vlog_verdict(f"propose_{action_type.lower()}", verdict, params)
+    logger.roe_verdict(action_type, params,
+                       allowed=verdict.allowed,
+                       reason=verdict.reason,
+                       suggested=verdict.suggested)
+    _vlog_verdict(tool_name, verdict, params)
 
     if verdict.allowed:
         StepContext.proposed_action = (action_type, params, reason)
@@ -114,7 +143,9 @@ def _propose(action_type: str, params: dict, reason: str) -> dict:
             "status": "approved",
             "scheduled": f"{action_type} {params}",
         }
-        _vlog_result(f"propose_{action_type.lower()}", payload)
+        logger.action_proposed(action_type, params, reason)
+        logger.tool_result(tool_name, payload)
+        _vlog_result(tool_name, payload)
         return _text_result(payload)
 
     target = params.get("hostname") or params.get("target_zone") or "(unknown)"
@@ -124,7 +155,8 @@ def _propose(action_type: str, params: dict, reason: str) -> dict:
         "reason": verdict.reason,
         "suggested": verdict.suggested,
     }
-    _vlog_result(f"propose_{action_type.lower()}", payload)
+    logger.tool_result(tool_name, payload)
+    _vlog_result(tool_name, payload)
     return _text_result(payload)
 
 

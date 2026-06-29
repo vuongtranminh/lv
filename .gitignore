@@ -1,0 +1,51 @@
+# ===== Hệ thống / IDE =====
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.python-version
+
+# ===== Virtual environment (KHÔNG push lên git — quá lớn ~2GB) =====
+llms-are-acd-main/cage-env/
+cage-env/
+venv/
+env/
+.venv/
+
+# ===== CAGE-4 upstream code (clone lại từ github gốc khi setup) =====
+llms-are-acd-main/cage-challenge-4/
+
+# ===== Secrets / API keys =====
+.env
+.env.local
+*.key
+*.pem
+**/secrets/
+.env.cage4
+
+# ===== Logs tạm thời =====
+*.log
+benchmark_full.log
+benchmark_logs/
+
+# ===== Checkpoint pickle (lưu trạng thái runtime, không cần đẩy) =====
+checkpoint_*.pkl
+*.pkl.tmp
+
+# ===== Build artifacts =====
+build/
+dist/
+*.egg
+node_modules/
