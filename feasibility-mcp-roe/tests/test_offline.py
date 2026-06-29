@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from feasibility.state_extractor import decode_commvector, extract_state
 from feasibility.roe import policy_engine
-from feasibility.roe.rules import EpisodeCounters
+from feasibility.roe.policy_engine import EpisodeCounters  # v2 alias (Sprint 2)
 
 
 # ─── Comms-vector decoder ─────────────────────────────────────────────────────

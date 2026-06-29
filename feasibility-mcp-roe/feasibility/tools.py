@@ -87,6 +87,12 @@ async def get_threat_summary(args):
         "last_action_status": state.get("last_action_status"),
         "available_hostnames": state.get("all_hostnames", []),
     }
+    # Sprint 2 — D2 fix: thêm recommended_action (RoE chủ động gợi ý)
+    try:
+        from .roe.rules_v2 import recommend_next_action
+        payload["recommended_action"] = recommend_next_action(state)
+    except Exception:
+        pass
     get_logger().tool_result("get_threat_summary", payload)
     _vlog_result("get_threat_summary", payload)
     return _text_result(payload)
@@ -224,6 +230,17 @@ async def propose_deploy_decoy(args):
 
 
 @tool(
+    "propose_remove",
+    "Chấm dứt các tiến trình user-level đáng ngờ trên một host. KHÔNG gây "
+    "downtime (chỉ kill process, không wipe host). AN TOÀN — dùng khi xác "
+    "nhận IOC user-level (cmd.sh/cmd.exe). Không cần Analyse mãi.",
+    {"hostname": str, "reason": str},
+)
+async def propose_remove(args):
+    return _propose("Remove", {"hostname": args["hostname"]}, args["reason"])
+
+
+@tool(
     "propose_block_traffic",
     "Chặn toàn bộ traffic inbound từ một zone/subnet. PHÁ HỦY — ảnh hưởng "
     "các dịch vụ hợp pháp xuyên zone. Chính sách RoE: tối đa 1 block / "
@@ -236,6 +253,26 @@ async def propose_block_traffic(args):
     )
 
 
+@tool(
+    "propose_sleep",
+    "Không hành động trong lượt này. Chọn khi: (1) get_threat_summary trả "
+    "0 threats VÀ get_comms_decoded báo all 'none' compromise, HOẶC (2) "
+    "đang chờ kết quả Analyse trước (last_action_status=IN_PROGRESS). "
+    "KHÔNG dùng Sleep nếu có host trong threats — phải Analyse/Remove/"
+    "Restore. Sleep luôn được RoE chấp nhận.",
+    {"reason": str},
+)
+async def propose_sleep(args):
+    logger = get_logger()
+    logger.tool_call("propose_sleep", {"reason": args.get("reason", "")})
+    StepContext.proposed_action = ("Sleep", {}, args.get("reason", ""))
+    logger.action_proposed("Sleep", {}, args.get("reason", ""))
+    payload = {"status": "approved", "scheduled": "Sleep"}
+    logger.tool_result("propose_sleep", payload)
+    _vlog_result("propose_sleep", payload)
+    return _text_result(payload)
+
+
 # In-process MCP server holding all tools
 TOOLS_SERVER = create_sdk_mcp_server(
     name="defender_tools",
@@ -245,8 +282,10 @@ TOOLS_SERVER = create_sdk_mcp_server(
         get_comms_decoded,
         propose_analyse,
         propose_restore,
+        propose_remove,
         propose_deploy_decoy,
         propose_block_traffic,
+        propose_sleep,
     ],
 )
 
@@ -257,6 +296,8 @@ ALLOWED_TOOL_IDS = [
     "mcp__defender_tools__get_comms_decoded",
     "mcp__defender_tools__propose_analyse",
     "mcp__defender_tools__propose_restore",
+    "mcp__defender_tools__propose_remove",
+    "mcp__defender_tools__propose_sleep",
     "mcp__defender_tools__propose_deploy_decoy",
     "mcp__defender_tools__propose_block_traffic",
 ]

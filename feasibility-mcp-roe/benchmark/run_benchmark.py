@@ -277,19 +277,25 @@ def delete_checkpoint(tag: str):
 
 
 def _capture_roe_counters_state():
-    """Snapshot trạng thái RoE EpisodeCounters."""
-    from feasibility.roe.rules import EpisodeCounters
+    """Snapshot RoE EpisodeCounters v2 (đã wire trong policy_engine)."""
+    from feasibility.roe.policy_engine import EpisodeCounters
     return {
         "blocks_per_zone": dict(EpisodeCounters.blocks_per_zone),
         "decoys_per_host": dict(EpisodeCounters.decoys_per_host),
+        "restores_total": getattr(EpisodeCounters, "restores_total", 0),
+        "decoys_total": getattr(EpisodeCounters, "decoys_total", 0),
     }
 
 
 def _restore_roe_counters_state(state):
-    """Restore trạng thái RoE EpisodeCounters."""
-    from feasibility.roe.rules import EpisodeCounters
+    """Restore RoE EpisodeCounters v2."""
+    from feasibility.roe.policy_engine import EpisodeCounters
     EpisodeCounters.blocks_per_zone = dict(state.get("blocks_per_zone", {}))
     EpisodeCounters.decoys_per_host = dict(state.get("decoys_per_host", {}))
+    if hasattr(EpisodeCounters, "restores_total"):
+        EpisodeCounters.restores_total = state.get("restores_total", 0)
+    if hasattr(EpisodeCounters, "decoys_total"):
+        EpisodeCounters.decoys_total = state.get("decoys_total", 0)
 
 
 # ─── Episode loop ────────────────────────────────────────────────────────────

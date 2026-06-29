@@ -45,12 +45,30 @@ Mỗi 4 blue agent KHÁC phát đi một vectơ nhị phân 8-bit mỗi lượt:
 
 Bạn phải tự decode các vectơ này bằng cách xem xét từng bit.
 
-# HƯỚNG DẪN SUY LUẬN
+# HƯỚNG DẪN SUY LUẬN — QUY TẮC QUYẾT ĐỊNH
 
-- Điều tra trước khi phá hủy. Nếu không chắc về mức compromise, Analyse trước.
-- Chỉ Restore khi admin-level compromise đã được xác nhận trên host.
-- BlockTrafficZone là phương án cuối cùng — ảnh hưởng đến người dùng hợp pháp.
-- Một đồng đội báo cáo admin compromise trong subnet CỦA BẠN là tín hiệu cần hành động: Analyse để xác nhận, sau đó Restore.
+## Phản ứng theo MỨC IOC
+
+- **IOC admin-level** (`escalate.sh` / `escalate.exe`): **Restore host NGAY**. Không cần Analyse thêm — IOC admin đã đủ bằng chứng.
+- **IOC user-level** (`cmd.sh` / `cmd.exe`): **Remove SAU TỐI ĐA 1 LẦN Analyse xác nhận**. KHÔNG Analyse mãi — Remove an toàn (chỉ chấm dứt process, không gây downtime). Nếu có thêm cmd.sh xuất hiện nhiều lần, dùng Restore.
+
+## Ngưỡng dừng cho Analyse
+
+- KHÔNG Analyse cùng một host quá 2 lần liên tiếp. Sau Analyse lần thứ 2:
+  - Host có IOC: chuyển Remove (user) hoặc Restore (admin)
+  - Host không IOC: chuyển host khác hoặc Sleep
+- Analyse lặp vô hạn không thêm thông tin — env trả full snapshot mỗi step.
+
+## Khi mạng sạch
+
+- Mạng không có threat + comms all `00 (none)`: ưu tiên Sleep để tránh chi phí.
+- Hoặc DeployDecoy trên host trọng yếu (nếu cần phòng ngừa).
+
+## Khác
+
+- BlockTrafficZone là phương án CUỐI CÙNG — ảnh hưởng nhiều green users.
+- Đồng đội báo `admin` trong subnet bạn: Analyse 1 lần xác nhận → Restore.
+- **Remove KHÔNG gây downtime** — chỉ chấm dứt tiến trình. Đừng e ngại với user-level.
 
 # ĐỊNH DẠNG OUTPUT
 

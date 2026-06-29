@@ -31,7 +31,7 @@ import time
 from .audit import AuditLog
 from .context import StepContext
 from .detailed_logger import DetailedLogger
-from .roe.rules import EpisodeCounters
+from .roe.policy_engine import EpisodeCounters  # alias → EpisodeCountersV2
 from .state_extractor import extract_state
 from .tools import TOOLS_SERVER, ALLOWED_TOOL_IDS
 from .paper_style import PAPER_SYSTEM_PROMPT, render_paper_observation, parse_paper_response

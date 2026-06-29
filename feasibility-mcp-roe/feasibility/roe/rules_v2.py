@@ -252,3 +252,86 @@ def record_action_v2(action_type: str, params: dict) -> None:
         EpisodeCountersV2.record_decoy(params.get("hostname", ""))
     elif action_type == "Restore":
         EpisodeCountersV2.record_restore(params.get("hostname", ""))
+
+
+# ─── ACTIVE SUGGESTION (Sprint 2 — D2 fix) ──────────────────────────────────
+
+def recommend_next_action(state: dict) -> dict:
+    """Trả về action ĐƯỢC ĐỀ XUẤT mà LLM nên gọi tiếp, dựa trên state hiện tại.
+
+    Khác Verdict (chỉ deny/allow): hàm này CHỦ ĐỘNG suggest. Dùng để inject
+    `recommended_action` vào tool result `get_threat_summary` — giúp LLM
+    không "loay hoay" mãi với Analyse.
+
+    Logic ưu tiên:
+    1. Có host admin → đề xuất Restore host đó
+    2. Có host user → đề xuất Remove host đó
+    3. Mạng sạch (0 threats + comms all none) → đề xuất Sleep
+    4. Có host chưa được Analyse → đề xuất Analyse host trọng yếu
+    5. Mạng "không xác định" → đề xuất DeployDecoy
+    """
+    threats = state.get("threats", [])
+
+    # Priority 1: admin host → Restore
+    admin_threats = [t for t in threats if t.get("compromise_level") == "admin"]
+    if admin_threats:
+        # Check quota Restore (max 5/episode)
+        if EpisodeCountersV2.restores_total < MAX_RESTORES_TOTAL:
+            return {
+                "action": "Restore",
+                "hostname": admin_threats[0]["hostname"],
+                "reason": (
+                    f"Host '{admin_threats[0]['hostname']}' có IOC admin "
+                    f"({admin_threats[0].get('iocs', [])}) — Restore ngay để cắt threat."
+                ),
+                "priority": "critical",
+            }
+
+    # Priority 2: user-level host → Remove
+    user_threats = [t for t in threats if t.get("compromise_level") == "user"]
+    if user_threats:
+        return {
+            "action": "Remove",
+            "hostname": user_threats[0]["hostname"],
+            "reason": (
+                f"Host '{user_threats[0]['hostname']}' có IOC user-level "
+                f"({user_threats[0].get('iocs', [])}) — Remove sớm tránh leo thang."
+            ),
+            "priority": "high",
+        }
+
+    # Priority 3: mạng "sạch" → Sleep
+    comms = state.get("comms", [])
+    all_comms_none = all(
+        c.get("compromise_level_in_sender_net") == "none" for c in comms
+    )
+    if not threats and all_comms_none and comms:
+        return {
+            "action": "Sleep",
+            "reason": "Không có threat + đồng đội không báo gì — giảm chi phí ngầm.",
+            "priority": "low",
+        }
+
+    # Priority 4: có host chưa decoy → DeployDecoy
+    all_hosts = state.get("all_hostnames", [])
+    for h in all_hosts:
+        if EpisodeCountersV2.decoys_per_host.get(h, 0) < MAX_DECOYS_PER_HOST:
+            if EpisodeCountersV2.decoys_total < MAX_DECOYS_TOTAL:
+                return {
+                    "action": "DeployDecoy",
+                    "hostname": h,
+                    "reason": f"Phòng thủ chủ động — host '{h}' chưa đạt quota decoy.",
+                    "priority": "low",
+                }
+            break  # đã đạt quota tổng
+
+    # Fallback: Analyse host bất kỳ
+    if all_hosts:
+        return {
+            "action": "Analyse",
+            "hostname": all_hosts[0],
+            "reason": "Kiểm tra định kỳ — không có signal đặc biệt nào.",
+            "priority": "low",
+        }
+
+    return {"action": "Sleep", "reason": "Không có host nào để hành động.", "priority": "low"}
