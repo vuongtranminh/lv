@@ -24,8 +24,8 @@ venv/
 env/
 .venv/
 
-# ===== CAGE-4 upstream code (clone lại từ github gốc khi setup) =====
-llms-are-acd-main/cage-challenge-4/
+# ===== CAGE-4 upstream code: INCLUDE để lưu trữ đầy đủ =====
+# (8.6MB, include trong repo để reproducible — không cần clone lại từ upstream)
 
 # ===== Secrets / API keys =====
 .env
