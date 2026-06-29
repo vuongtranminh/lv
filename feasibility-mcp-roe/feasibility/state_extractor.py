@@ -79,6 +79,25 @@ def extract_threats(observation: dict) -> list:
     return threats
 
 
+def extract_all_hostnames(observation: dict) -> list:
+    """Trả về danh sách TẤT CẢ hostname có trong observation.
+
+    Khác `extract_threats` (chỉ trả host có IOC). Mục đích: cung cấp cho LLM
+    danh sách hostname HỢP LỆ để khi gọi propose_* không bịa tên (vd
+    'web-server' thay vì 'office_network_subnet_user_host_1').
+    """
+    hostnames = []
+    for key, value in (observation or {}).items():
+        if key in ("success", "action", "phase", "message"):
+            continue
+        if not isinstance(value, dict):
+            continue
+        hostname = value.get("System info", {}).get("Hostname", str(key))
+        if hostname not in hostnames:
+            hostnames.append(hostname)
+    return hostnames
+
+
 def extract_state(observation, agent_name: str, last_action: str) -> dict:
     """Top-level: CybORG raw observation → structured JSON state."""
     if observation is None:
@@ -89,6 +108,7 @@ def extract_state(observation, agent_name: str, last_action: str) -> dict:
             "last_action_status": "unknown",
             "comms": [],
             "threats": [],
+            "all_hostnames": [],
         }
 
     my_idx = int(agent_name[-1])
@@ -107,4 +127,5 @@ def extract_state(observation, agent_name: str, last_action: str) -> dict:
         "last_action_status": observation.get("success", "unknown"),
         "comms": comms,
         "threats": extract_threats(observation),
+        "all_hostnames": extract_all_hostnames(observation),
     }

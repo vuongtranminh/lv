@@ -69,10 +69,12 @@ def _text_result(payload) -> dict:
 
 @tool(
     "get_threat_summary",
-    "Lấy thông tin về các threat cấp host trong subnet của agent này: phase, "
-    "danh sách threats (hostname + compromise_level + IOCs + tiến trình đáng "
-    "ngờ + connections), và trạng thái của hành động trước đó. Gọi tool này "
-    "TRƯỚC khi hành động.",
+    "Lấy thông tin về subnet của agent này: phase, danh sách threats (host "
+    "có IOC + compromise_level + tiến trình đáng ngờ), trạng thái hành động "
+    "trước đó, VÀ DANH SÁCH HOSTNAME HỢP LỆ (available_hostnames). Gọi tool "
+    "này TRƯỚC khi hành động. QUAN TRỌNG: khi đề xuất action có hostname, "
+    "PHẢI dùng tên trong available_hostnames — KHÔNG bịa tên kiểu "
+    "'web-server' hay 'db-server'.",
     {},
 )
 async def get_threat_summary(args):
@@ -83,6 +85,7 @@ async def get_threat_summary(args):
         "threats": state.get("threats", []),
         "last_action": state.get("last_action"),
         "last_action_status": state.get("last_action_status"),
+        "available_hostnames": state.get("all_hostnames", []),
     }
     get_logger().tool_result("get_threat_summary", payload)
     _vlog_result("get_threat_summary", payload)
@@ -112,6 +115,32 @@ def _propose(action_type: str, params: dict, reason: str) -> dict:
     logger = get_logger()
     tool_name = f"propose_{action_type.lower()}"
     logger.tool_call(tool_name, {**params, "reason": reason})
+
+    # PRE-CHECK: validate hostname (chống LLM bịa tên kiểu 'web-server' khi
+    # CybORG dùng format `<zone>_subnet_<role>_host_<idx>`)
+    hostname = params.get("hostname")
+    if hostname is not None:
+        all_hosts = (StepContext.state or {}).get("all_hostnames", [])
+        if all_hosts and hostname not in all_hosts:
+            sample = all_hosts[:5]
+            payload = {
+                "status": "denied",
+                "reason": (
+                    f"Hostname '{hostname}' KHÔNG TỒN TẠI trong subnet của bạn. "
+                    f"PHẢI dùng tên từ available_hostnames."
+                ),
+                "suggested": (
+                    f"Các hostname HỢP LỆ: {sample}"
+                    + ("..." if len(all_hosts) > 5 else "")
+                ),
+                "hostname_validation_failed": True,
+            }
+            StepContext.rejected_attempts.append(
+                (action_type, hostname, "invalid hostname")
+            )
+            logger.tool_result(tool_name, payload)
+            _vlog_result(tool_name, payload)
+            return _text_result(payload)
 
     # BYPASS RoE nếu mode flag tắt (dùng cho Setup B — MCP only)
     if not StepContext.roe_enabled:

@@ -10,6 +10,15 @@ Mỗi lượt:
 
 Bạn BẮT BUỘC phải kết thúc lượt bằng một tool call `propose_*` trả về `{"status": "approved"}`. Nếu một đề xuất bị từ chối, đọc lý do và đề xuất một hành động khác tôn trọng ràng buộc đó.
 
+# Hostname — CỰC KỲ QUAN TRỌNG
+
+`get_threat_summary()` trả về trường `available_hostnames` chứa danh sách hostname HỢP LỆ trong subnet của bạn. Khi gọi `propose_analyse(hostname=...)`, `propose_restore(hostname=...)`, `propose_deploy_decoy(hostname=...)`:
+
+- **PHẢI** dùng tên CHÍNH XÁC từ `available_hostnames`.
+- **KHÔNG được bịa** tên kiểu `web-server`, `db-server`, `app-server`, `api-gateway`, `dns-resolver`, `mail-server` — đây là tên thường thấy trên web nhưng KHÔNG có trong môi trường CybORG CAGE 4.
+- Format hostname CAGE 4: `<zone>_subnet_<role>_host_<idx>` (vd `office_network_subnet_user_host_1`, `public_access_zone_subnet_server_host_0`).
+- Nếu vẫn cố dùng tên bịa, tool sẽ trả `{"status": "denied", "hostname_validation_failed": true}` cùng với danh sách tên hợp lệ.
+
 # Các hành động khả dụng
 
 | Tool | Phá hủy? | Khi nào dùng |
