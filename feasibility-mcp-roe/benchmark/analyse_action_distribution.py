@@ -93,11 +93,20 @@ def load_reward(results_dir: Path, setup: str, red: str, ep: int, tag: str | Non
 
 
 def setup_label(setup: str, tag: str | None) -> str:
-    """A/B/C → human label; tag distinguishes C-v1 (sprint1) vs C-v2 (post-fix)."""
+    """A/B/C → human label; tag thêm context (sprint1/sprint3/active)."""
     if setup == "C":
         if tag == "sprint1":
             return "C-v1 (Sprint1 pre-fix)"
+        if tag == "active" or tag == "sprint3_active":
+            return "C-active (Sprint3)"
+        if tag == "sprint3":
+            return "C-passive (Sprint3 rerun)"
         return "C-v2 (Sprint2 post-fix)"
+    # A, B
+    if tag == "sprint3":
+        return f"{setup} (Sprint3 rerun)"
+    if tag == "sprint1":
+        return f"{setup} (Sprint1)"
     return setup
 
 
@@ -164,9 +173,10 @@ def main():
             "reward": reward,
         })
 
-    # Sort: A, B, C-v1, C-v2, C-active, ... by Setup then ep then tag
+    # Sort: A, B, C — trong cùng setup: sprint1 (pre-fix) → no tag (Sprint2 post-fix)
+    # → sprint3 (rerun) → active (C-active). Sau đó theo red và ep.
     setup_order = {"A": 0, "B": 1, "C": 2}
-    tag_order = {None: 1, "sprint1": 0, "active": 2}
+    tag_order = {"sprint1": 0, None: 1, "sprint3": 2, "active": 3, "sprint3_active": 3}
     rows.sort(key=lambda r: (
         setup_order.get(r["setup"], 99),
         tag_order.get(r["tag"], 5),

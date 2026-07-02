@@ -35,6 +35,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 TH3_PATH = Path(__file__).parent.parent.parent / "llms-are-acd-main"
 if TH3_PATH.exists():
     sys.path.insert(0, str(TH3_PATH))
+# CybORG core (Sim engine) ở cage-challenge-4/ — package editable install
+CAGE4_PATH = TH3_PATH / "cage-challenge-4"
+if CAGE4_PATH.exists():
+    sys.path.insert(0, str(CAGE4_PATH))
 
 # ─── Lazy import CybORG (chỉ load khi thực sự cần chạy) ──────────────────────
 
@@ -144,11 +148,15 @@ def build_cyborg_env(red_variant: str, seed: int) -> "CybORG":
     return CybORG(sg, "sim", seed=seed)
 
 
-def build_blue_policies(setup: str) -> dict:
+def build_blue_policies(setup: str, active_mode: bool = False) -> dict:
     """Tạo dict {agent_name: policy}. LLM_BLUE_AGENT dùng ClaudeDefenderPolicy
     theo setup; 4 agent còn lại dùng ReactRemoveBlueAgent (baseline).
+
+    active_mode: chỉ áp dụng khi setup="C" — bật prompt_active.md +
+    rule_no_sleep_when_threat (Sprint 3 Nhánh A).
     """
     cfg = SETUPS[setup]
+    is_active = active_mode and setup == "C"
     policies = {}
     for i in range(5):
         name = f"blue_agent_{i}"
@@ -160,6 +168,7 @@ def build_blue_policies(setup: str) -> dict:
                     "agent_name": name,
                     "mcp_enabled": cfg["mcp_enabled"],
                     "roe_enabled": cfg["roe_enabled"],
+                    "active_mode": is_active,
                 },
             )
         else:
@@ -300,14 +309,23 @@ def _restore_roe_counters_state(state):
 
 # ─── Episode loop ────────────────────────────────────────────────────────────
 
-def run_single_episode(setup: str, red_variant: str, episode_idx: int, seed: int) -> dict:
-    """Chạy 1 episode, ghi log per-step + joint reward."""
+def run_single_episode(setup: str, red_variant: str, episode_idx: int, seed: int,
+                       run_tag: str = None, active_mode: bool = False) -> dict:
+    """Chạy 1 episode, ghi log per-step + joint reward.
+
+    run_tag: nếu set, output file = <setup>_<red>_ep<N>_<run_tag>.{csv,json,jsonl}
+             dùng để tách biệt log Sprint 3 vs Sprint 1.
+    active_mode: True → Setup C-active (prompt_active + rule_no_sleep_when_threat).
+                  Chỉ có hiệu lực khi setup="C".
+    """
     if not _lazy_import_cyborg():
         raise RuntimeError("CybORG chưa cài — không thể chạy episode")
 
     cfg = SETUPS[setup]
-    tag = f"{setup}_{red_variant}_ep{episode_idx}"
-    print(f"\n▶ {tag} (mcp={cfg['mcp_enabled']}, roe={cfg['roe_enabled']})")
+    base_tag = f"{setup}_{red_variant}_ep{episode_idx}"
+    tag = f"{base_tag}_{run_tag}" if run_tag else base_tag
+    active_str = " ACTIVE" if active_mode and setup == "C" else ""
+    print(f"\n▶ {tag} (mcp={cfg['mcp_enabled']}, roe={cfg['roe_enabled']}{active_str})")
 
     audit_path = OUTPUT_DIR / f"audit_{tag}.csv"
     reward_path = OUTPUT_DIR / f"joint_reward_{tag}.json"
@@ -331,7 +349,7 @@ def run_single_episode(setup: str, red_variant: str, episode_idx: int, seed: int
         # AuditLog + DetailedLogger ĐÃ chuyển sang mode "a" (append) — file log
         # cũ KHÔNG bị ghi đè. Step counter của LLM agent cũng restore từ checkpoint
         # để mọi event mới có step number đúng (không reset về 0).
-        policies = build_blue_policies(setup)
+        policies = build_blue_policies(setup, active_mode=active_mode)
         # Restore step counter cho LLM agent (blue_agent_4)
         for name, pol in policies.items():
             if hasattr(pol, "step") and not isinstance(pol, ReactRemoveBlueAgent):
@@ -340,7 +358,7 @@ def run_single_episode(setup: str, red_variant: str, episode_idx: int, seed: int
                     pol.detailed.set_step(start_step)
     else:
         env = build_cyborg_env(red_variant, seed=seed)
-        policies = build_blue_policies(setup)
+        policies = build_blue_policies(setup, active_mode=active_mode)
 
         reset_ret = env.reset()
         # parallel env API trả (obs, info); cũ hơn có thể trả chỉ obs
@@ -456,9 +474,10 @@ def run_single_episode(setup: str, red_variant: str, episode_idx: int, seed: int
 
 # ─── Cấu hình hoàn thiện episode ─────────────────────────────────────────────
 
-def episode_done(setup: str, red: str, ep: int) -> bool:
+def episode_done(setup: str, red: str, ep: int, run_tag: str = None) -> bool:
     """Episode đã chạy xong nếu file joint_reward_<tag>.json tồn tại + parse được."""
-    path = OUTPUT_DIR / f"joint_reward_{setup}_{red}_ep{ep}.json"
+    suffix = f"_{run_tag}" if run_tag else ""
+    path = OUTPUT_DIR / f"joint_reward_{setup}_{red}_ep{ep}{suffix}.json"
     if not path.exists():
         return False
     try:
@@ -622,6 +641,12 @@ def main():
     parser.add_argument("--force", action="store_true", help="Chạy lại cả episode đã xong (mặc định: skip)")
     parser.add_argument("--chunk", type=str, help="Chia 60 ep thành M phần, chạy phần N. VD: --chunk 3/12")
     parser.add_argument("--status", action="store_true", help="Xem tiến độ — không chạy gì")
+    parser.add_argument("--tag", type=str, default=None,
+                        help="Suffix file output (vd --tag sprint3 → audit_A_FiniteState_ep0_sprint3.csv). "
+                             "Dùng để tách biệt với log lần chạy trước.")
+    parser.add_argument("--active", action="store_true",
+                        help="Bật Setup C-active (prompt_active + rule_no_sleep_when_threat). "
+                             "Chỉ có hiệu lực với --setup C.")
     args = parser.parse_args()
 
     if args.status:
@@ -632,10 +657,12 @@ def main():
         run_all(force=args.force, chunk_spec=args.chunk)
     elif args.setup and args.red:
         for ep in range(args.episodes):
-            if not args.force and episode_done(args.setup, args.red, ep):
-                print(f"  ⊙ skip {args.setup}_{args.red}_ep{ep} (đã có joint_reward_*.json)")
+            if not args.force and episode_done(args.setup, args.red, ep, run_tag=args.tag):
+                print(f"  ⊙ skip {args.setup}_{args.red}_ep{ep}"
+                      f"{'_' + args.tag if args.tag else ''} (đã có joint_reward_*.json)")
                 continue
-            run_single_episode(args.setup, args.red, ep, seed=ep)
+            run_single_episode(args.setup, args.red, ep, seed=ep,
+                               run_tag=args.tag, active_mode=args.active)
     else:
         parser.print_help()
 
