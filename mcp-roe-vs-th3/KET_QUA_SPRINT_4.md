@@ -423,6 +423,65 @@ Mỗi env step:
 
 → LLM Haiku 4.5 mỗi step **suy nghĩ như mới bắt đầu**. Có instinct "server_host_0 quan trọng nhất, deploy first" (từ prompt TH3 example 1 gợi ý `restricted_zone_a_subnet_user_host_0`, LLM luận rằng server host cũng quan trọng) → làm lại → RoE deny → chuyển host → sang step tiếp lặp lại.
 
+#### 4.4.3.1 Thiết kế stateless per step KHÔNG phải lựa chọn riêng của Sprint 4 — TH3 gốc cũng vậy
+
+Đây là điểm quan trọng cho fair comparison: **TH3 baseline gốc CŨNG stateless per step**, không phải chỉ Setup A/C của em.
+
+**Bằng chứng từ TH3 code**: file [`llms-are-acd-main/CybORG/Agents/LLMAgents/llm_policy.py`](../llms-are-acd-main/CybORG/Agents/LLMAgents/llm_policy.py), hàm `compute_single_action` (chạy mỗi step):
+
+```python
+def compute_single_action(self, obs=None, prev_action=None, **kwargs):
+    """Process a single observation and return corresponding action."""
+    Logger.new_episode()
+    obs_message = obs_formatter.format_observation(obs, self.last_action, self.name)
+    self.current_episode_messages = []   # ← RESET messages về rỗng mỗi step!
+    response = ""
+    if self.prompts:
+        self.current_episode_messages.append(self.prompts[0])
+        # Optional: thêm cage4_rules + commvector_rules
+        self.current_episode_messages.append({"role": "user", "content": obs_message})
+        response = self.generate_response(self.current_episode_messages)
+```
+
+**Dòng then chốt**: `self.current_episode_messages = []` — reset messages về rỗng **mỗi step**. Dù tên biến có chữ "episode", thực tế nó reset **per step** (misleading naming của TH3).
+
+→ TH3 gửi cho LLM mỗi step:
+1. System prompt (strategy — baseline/cot/analogical/acd2025 base)
+2. Optional: env_rules prompt (cage4_rules + commvector_rules)
+3. User message: **CHỈ observation của step hiện tại**
+4. LLM response → parse action → return
+
+**KHÔNG có history của step trước.**
+
+**Bảng so sánh 3 setup**:
+
+| Khía cạnh | TH3 gốc (llm_policy.py) | Setup A-TH3 (paper_style_th3.py) | Setup C-TH3 (claude_policy.py) |
+|---|---|---|---|
+| Memory xuyên step | ❌ Không | ❌ Không | ❌ Không |
+| Cơ chế reset | `self.current_episode_messages = []` | `ClaudeSDKClient` mới mỗi step | `ClaudeSDKClient` mới mỗi step |
+| Turn trong 1 step | 1 (single-shot) | 1 (single-shot) | Up to 8 (multi-turn MCP) |
+| Nội dung LLM thấy mỗi step | Prompt + obs text | Prompt + obs text | Prompt + tool call qua MCP |
+
+→ **Cả 3 setup đều stateless per step**. Đây là design chung của LLM policy trong TH3 paradigm, không phải bug em introduce.
+
+**Ý nghĩa cho fair comparison**:
+
+- Cải thiện +7935 điểm của C-TH3 vs A-TH3 đạt được dù **CẢ HAI đều stateless** → khác biệt hoàn toàn nhờ MCP + RoE, không phải nhờ memory advantage
+- Hạn chế "LLM quên xuyên step" trong §4.4.2 là **feature của TH3 paradigm**, không phải khuyết điểm riêng của Sprint 4
+- Nếu tương lai muốn add memory (Hướng 2 §4.4.5), đó là **cải thiện Sprint 5** so với **cả TH3 và Sprint 4**
+
+**Vì sao TH3 chọn stateless per step**:
+
+1. **Context window explosion**: Nếu tích luỹ history qua 500 step × ~1K token/step = 500K token — vượt context window của hầu hết model, chi phí API O(N²)
+2. **State đủ trong observation**: observation mỗi step đã chứa Mission Phase + Last Action + Commvector + Suspicious Activity → LLM không cần nhớ history
+3. **Isolate errors**: nếu LLM sai step 3, giữ history sẽ propagate lỗi sang step 4-500. Stateless per step giúp mỗi step là cơ hội mới
+
+Đây là quyết định thiết kế **có căn cứ** của TH3, em kế thừa theo để so sánh fair.
+
+**Câu writeup ngắn cho luận văn Chương 5**:
+
+> *"Thiết kế stateless per step (mỗi env step tạo LLM session mới, không giữ conversation history) không phải lựa chọn riêng của Setup A/C mà là design chung của TH3 baseline gốc — bằng chứng trong `llms-are-acd-main/CybORG/Agents/LLMAgents/llm_policy.py` dòng `self.current_episode_messages = []` reset messages mỗi step. Cả 3 setup (TH3 paper, Setup A-TH3, Setup C-TH3) đều stateless per step. Do đó, cải thiện +7935 điểm của C-TH3 vs A-TH3 đạt được DÙ cả hai đều stateless — hoàn toàn nhờ MCP tool call + RoE deterministic, không phải memory advantage. Điều này khẳng định giá trị của MCP+RoE là additive layer trên TH3 paradigm chứ không phải thay thế paradigm."*
+
 #### 4.4.4 Chi phí và lợi ích của thiết kế này
 
 **Chi phí**:
