@@ -174,18 +174,33 @@ propose_deploy_decoy(hostname="restricted_zone_a_subnet_server_host_1", reason="
 
 ## 3. Kết quả reward
 
-### 3.1 Reward cumulative theo episode
+### 3.1 Reward cumulative theo episode (UPDATED — n=4 cho cả 2 setup)
 
-| Cấu hình | ep0 (seed=0) | ep1 (seed=1) | Mean | Std (n−1) | Range |
-|---|---|---|---|---|---|
-| **A-TH3** | **−8685** | −1260 | **−4972.5** | **±5250.3** | −8685 đến −1260 |
-| **C-TH3** | **−750** | −1645 | **−1197.5** | **±632.9** | −1645 đến −750 |
-| **Δ (C tốt hơn A)** | +7935 | −385 | **+3775** | **−4617.4** (std giảm 8×) | |
+| Cấu hình | ep0 | ep1 | ep2 | ep3 | Mean | Median | Std (n−1) |
+|---|---|---|---|---|---|---|---|
+| **A-TH3** | **−8685** ⚠ | −1675 | −1715 | −1045 | **−3280.0** | −1695.0 | **±3616.4** |
+| **C-TH3** | **−750** ⭐ | −1645 | −1965 | −2870 | **−1807.5** | −1805.0 | **±875.3** |
 
-**Nhận xét**:
-- A-TH3 có **biến động cực lớn** giữa 2 seed: ep0 tệ khủng khiếp (−8685), ep1 tương đối bình thường (−1260)
-- C-TH3 **ổn định**: cả 2 ep đều gần nhau, min-max chỉ chênh 895 điểm
-- **σ của A gấp 8.3 lần σ của C** — RoE V3 hoạt động như "safety net" chống outlier
+**Ghi chú về ep1 A-TH3**:
+- Bản gốc ep1 (chạy Sprint 4 đầu tiên): bị Claude API weekly rate limit từ step 175 → LLM "chết" 325 step cuối → reward giả −1260 không phản ánh LLM
+- Đã archive vào `detailed_A_FiniteState_ep1_contaminated_ratelimit.jsonl`
+- **Bản dùng cho analysis**: rerun với data sạch 100% → reward −1675
+- Sau khi audit lại 4 setup × 4 ep = 16 file log, **CHỈ có 1 file duy nhất bị nhiễm rate limit** đã archive
+
+**Phân tích chi tiết variance theo cách bỏ outlier**:
+
+| Cách so sánh | A mean | C mean | Delta (C tốt hơn) |
+|---|---|---|---|
+| **Full n=4** | −3280 | −1807.5 | **+1472** (do A có ep0 outlier −8685) |
+| **Median** | −1695 | −1805 | **A hơn C +110** (chỉ số ổn định) |
+| **Mean bỏ ep0** (n=3 mỗi setup) | −1478.3 ± 376 | −2160 ± 635 | **A HƠN C +682** ⚠️ |
+| **Best case** | −1045 | −750 | C tốt hơn |
+| **Worst case** | −8685 | −2870 | C tốt hơn 5815 |
+
+**Nhận xét mấu chốt**:
+- A-TH3 có **1 outlier extreme ep0 (−8685)**, còn 3 ep khác ổn định quanh −1478 ± 376
+- C-TH3 **ổn định hơn về variance** (±875 vs ±3616 = giảm 4×), nhưng mean **tương đương** hoặc hơi tệ hơn A khi bỏ outlier
+- **MCP+RoE V3 là safety net chống worst-case**, KHÔNG cải thiện typical case
 
 ### 3.2 So với TH3 paper báo cáo (Hình 5)
 
@@ -258,6 +273,112 @@ Cả 2 ep C-TH3 có cùng pattern:
 - Chỉ khác nhỏ: ep1 có 4 Block (ep0 không có)
 
 → **RoE V3 giảm sensitivity của LLM với seed/prompt randomness** — một trong 3 hạn chế của TH3 (Limitation 2) được giải quyết định lượng.
+
+### 4.2.5 Điều tra vì sao A-TH3 ep0 là outlier extreme (−8685)
+
+#### Damage timeline: cumulative reward tại từng mốc step
+
+| Step | ep0 cumulative | ep3 cumulative | Chênh (ep3 − ep0) |
+|---|---|---|---|
+| 50 | −65 | −30 | +35 |
+| 100 | −155 | −320 | −165 |
+| 150 | −215 | −440 | −225 |
+| **200** | **−510** | **−545** | **−35** ← gần bằng nhau |
+| **250** | **−935** | **−600** | +335 ← ep0 bắt đầu tệ hơn |
+| **300** | **−2,290** | **−670** | **+1,620** ← bùng nổ |
+| 350 | −4,730 | −775 | +3,955 |
+| 400 | −5,780 | −835 | +4,945 |
+| 450 | −7,080 | −930 | +6,150 |
+| 500 | **−8,685** | **−1,045** | **+7,640** ← final |
+
+**Phát hiện**: Ep0 và ep3 **có damage rất gần nhau đến step 200** (chênh chỉ 35 điểm). Sau đó ep0 **bùng nổ** từ step 250-350, mất **~2400 điểm mỗi 100 step** trong 200 step trung gian.
+
+#### Peak damage per step
+
+| Ep | Max phạt/step | Số lần phạt ≤ −10/step | Phân bố tệ nhất |
+|---|---|---|---|
+| A-TH3 ep0 | **−155** (step 325, 327, 333) | 199 | Step 300-400: 87 penalty steps |
+| A-TH3 ep3 | −30 (step 59, 92) | 32 | Rải đều |
+
+→ Ep0 có step phạt **−155** — nghĩa là 1 step có **~15 sự kiện −10** đồng thời (chủ yếu ở operational zone active).
+
+#### Mission phase transitions — CÙNG timing ở cả 2 ep
+
+Cả ep0 và ep3 đều có phase transition Y HỆT NHAU:
+- Step 0-167: phase=0 (Planning)
+- Step 168-334: phase=1 (**env: MissionA active, prompt: gọi là "Phase 2A"**)
+- Step 335-500: phase=2 (env: MissionB active)
+
+→ Phase transitions xảy ra **cùng thời điểm** ở ep0 và ep3. Nghĩa là damage difference KHÔNG do timing khác nhau.
+
+#### Nguyên nhân outlier ep0 — hai giả thuyết
+
+**Giả thuyết 1: Red established trong operational_zone_a TRƯỚC step 168**
+
+- Blue_agent_4 (LLM) chỉ thấy zone của nó (public/admin/office)
+- 4 blue agent RL còn lại đảm nhận restricted_zone_a/b + operational_zone_a/b
+- Trong ep0 seed=0: khả năng cao Red **tấn công thành công operational_zone_a** trước phase=1 activation (step 168)
+- Khi phase=1 kích hoạt, mọi Green fail và Red Impact trong operational_zone_a phạt **−10/lần**
+- Red đã có state R (root) → tiếp tục Impact liên tục → 15 sự kiện/step × −10 = **−150/step**
+- Peak damage step 325-333: **−155/step** khớp giả thuyết này
+
+**Giả thuyết 2: RL blue defense trong ep3 hiệu quả hơn ep0**
+
+- 4 blue RL agent hành xử **stochastic** (RL policy có randomness)
+- Trong seed=3, RL agents may mắn Restore/Remove được Red khỏi operational_zone_a
+- Trong seed=0, RL agents thất bại → Red persistent trong operational_zone_a
+
+**Kết luận**: cả 2 giả thuyết đều đúng một phần. Ep0 là **worst-case combination** của (Red path stochastic + RL blue stochastic defense) — không có gì đảm bảo lặp lại nếu chạy thêm seed.
+
+### 4.2.6 Phát hiện quan trọng: LLM Haiku hiểu SAI PHASE ENCODING
+
+Đọc reasoning LLM ở các step trong khoảng phase=1 (MissionA active theo env):
+
+```
+ep0 step 300: "Mission Phase: Phase 1 (pre-planning) with all low priority
+              — no urgent threats"
+              → LLM tưởng phase=1 là pre-planning, thực chất là MissionA active!
+
+ep3 step 250: "In phase 1 with no detected threats, deploy a decoy as
+              a proactive early warning system"
+              → Cùng lỗi
+```
+
+**Thống kê phase confusion** (trong khoảng step 168-334 khi env đang ở MissionA active):
+
+| Ep | Tổng response | Gọi "pre-planning" (SAI) | Gọi "Mission A active" (đúng) |
+|---|---|---|---|
+| A-TH3 ep0 | 166 | **138 (83%)** | 0 |
+| A-TH3 ep3 | 166 | **116 (70%)** | 0 |
+
+→ **LLM Haiku HOÀN TOÀN không nhận biết được MissionA đã active** trong 70-83% response.
+
+#### Nguyên nhân: mismatch prompt TH3 vs env encoding
+
+**Prompt TH3 gốc `acd2025/base.yml` định nghĩa 3 phase**:
+- "Phase 1 (Pre-planning)"
+- "Phase 2A (Mission A Active)"
+- "Phase 2B (Mission B Active)"
+
+**Env thực tế trả về mission_phase là integer 0/1/2**:
+
+| env value | Env meaning | Prompt mapping thực tế | LLM đọc "Phase X" ra |
+|---|---|---|---|
+| **0** | Planning | Phase 1 (Pre-planning) | **Match với "Phase 1"** ✓ |
+| **1** | **MissionA active** | Phase 2A (Mission A Active) | LLM tưởng là **"Phase 1"** ✗ (WRONG) |
+| **2** | MissionB active | Phase 2B (Mission B Active) | LLM tưởng là **"Phase 2"** = 2A? mơ hồ ✗ |
+
+→ Đây là **prompt-env encoding bug** của TH3 gốc, **LLM đọc "Phase 1" trong observation và match với "Phase 1 (Pre-planning)" trong prompt** thay vì hiểu env phase=1 là MissionA.
+
+#### Hàm ý cho luận văn
+
+**Hàm ý 1 — cả A-TH3 và C-TH3 đều gặp lỗi này**: cả 2 setup dùng cùng prompt TH3 gốc, đều bị phase confusion → **so sánh vẫn fair** (cùng lỗi ở cả 2).
+
+**Hàm ý 2 — TH3 gốc có bug prompt design chưa document**: paper TH3 đã publish nhưng LLM Haiku bị lỗi phase confusion nghiêm trọng. Có thể o3-mini xử lý được (do reasoning capability cao hơn), nhưng Haiku thì không.
+
+**Hàm ý 3 — hướng cải thiện cho luận văn**: nếu em sửa prompt để match env encoding (dùng "Phase 0/1/2" thay vì "Phase 1/2A/2B"), có thể **cả A-TH3 và C-TH3 đều cải thiện đáng kể**. Đây là **future work Sprint 5**.
+
+**Hàm ý 4 — variance ep0 KHÔNG do phase confusion**: Cả ep0 và ep3 đều có phase confusion tương đương (83% và 70%). Nên chênh lệch reward là do env stochasticity (Red + RL blue path), không phải do LLM.
 
 ### 4.3 Bằng chứng RoE chặn LLM sai — Deny statistics chi tiết
 
