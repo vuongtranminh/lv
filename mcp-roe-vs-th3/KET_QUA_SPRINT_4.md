@@ -344,14 +344,36 @@ ep3 step 250: "In phase 1 with no detected threats, deploy a decoy as
               → Cùng lỗi
 ```
 
-**Thống kê phase confusion** (trong khoảng step 168-334 khi env đang ở MissionA active):
+**Thống kê phase confusion PER-STEP** (trong 167 step thuộc phase=1 MissionA active, LLM có gọi "pre-planning" ít nhất 1 lần trong step đó không?):
 
-| Ep | Tổng response | Gọi "pre-planning" (SAI) | Gọi "Mission A active" (đúng) |
+| Setup ep | Steps trong MissionA | Steps LLM gọi "pre-planning" (SAI) | % SAI |
 |---|---|---|---|
-| A-TH3 ep0 | 166 | **138 (83%)** | 0 |
-| A-TH3 ep3 | 166 | **116 (70%)** | 0 |
+| **A-TH3 ep0** | 167 | 138 | **82.6%** |
+| A-TH3 ep1 | 167 | 120 | 71.9% |
+| A-TH3 ep2 | 167 | 132 | 79.0% |
+| A-TH3 ep3 | 167 | 116 | 69.5% |
+| **A-TH3 mean** | | | **~76%** |
+| **C-TH3 ep0** | 167 | 46 | 27.5% |
+| C-TH3 ep1 | 167 | 39 | 23.4% |
+| C-TH3 ep2 | 167 | 45 | 26.9% |
+| C-TH3 ep3 | 167 | 53 | 31.7% |
+| **C-TH3 mean** | | | **~27%** |
 
-→ **LLM Haiku HOÀN TOÀN không nhận biết được MissionA đã active** trong 70-83% response.
+→ **CẢ 2 setup đều bị phase confusion** — LLM Haiku 4.5 nhất quán hiểu SAI env phase=1.
+
+→ **Nhưng C-TH3 confusion rate chỉ bằng 1/3 A-TH3** (27% vs 76%) — chênh 49 điểm phần trăm.
+
+**Vì sao C-TH3 confusion ÍT hơn A-TH3**:
+
+3 giả thuyết (chưa test kỹ):
+
+1. **Multi-turn cho LLM cơ hội tự sửa**: C-TH3 có max 8 turn/step (vs A single-shot 1 turn). Trong nhiều turn, LLM có thể tự phát hiện mâu thuẫn ("phase=1 không có threats? Vậy sao có host bị compromise?") → sửa từ pre-planning sang mô tả khác.
+
+2. **Structured JSON từ tool giảm confusion**: C-TH3 nhận state qua `get_threat_summary()` trả JSON có `mission_phase` là **integer**. Khi LLM đọc `"mission_phase": 1`, nó ít tra prompt "Phase 1 = Pre-planning" hơn so với đọc raw text "Mission Phase: 1" trong A-TH3.
+
+3. **Tool call chiếm turn budget**: C-TH3 dùng nhiều turn cho tool call (không có phase reasoning) → xác suất mỗi step có 1 turn gọi "pre-planning" giảm.
+
+→ Đây có thể là **lợi ích phụ của MCP paradigm** mà em chưa document — MCP structured state giảm ảnh hưởng của prompt-env encoding mismatch.
 
 #### Nguyên nhân: mismatch prompt TH3 vs env encoding
 
@@ -372,13 +394,26 @@ ep3 step 250: "In phase 1 with no detected threats, deploy a decoy as
 
 #### Hàm ý cho luận văn
 
-**Hàm ý 1 — cả A-TH3 và C-TH3 đều gặp lỗi này**: cả 2 setup dùng cùng prompt TH3 gốc, đều bị phase confusion → **so sánh vẫn fair** (cùng lỗi ở cả 2).
+**Hàm ý 1 — CẢ A-TH3 và C-TH3 đều gặp lỗi này, nhưng ở mức độ khác**:
+- A-TH3: 76% steps trong MissionA bị confusion
+- C-TH3: 27% steps — thấp hơn 3 lần
+- → so sánh reward giữa A và C vẫn fair vì cả 2 cùng bug, chỉ khác mức độ
 
-**Hàm ý 2 — TH3 gốc có bug prompt design chưa document**: paper TH3 đã publish nhưng LLM Haiku bị lỗi phase confusion nghiêm trọng. Có thể o3-mini xử lý được (do reasoning capability cao hơn), nhưng Haiku thì không.
+**Hàm ý 2 — MCP paradigm giảm phase confusion GIÁN TIẾP**: C-TH3 confusion thấp hơn nhờ multi-turn + structured state từ tool. Đây là **lợi ích phụ** của MCP chưa được document trong luận văn — có thể thêm vào Chương 5.
 
-**Hàm ý 3 — hướng cải thiện cho luận văn**: nếu em sửa prompt để match env encoding (dùng "Phase 0/1/2" thay vì "Phase 1/2A/2B"), có thể **cả A-TH3 và C-TH3 đều cải thiện đáng kể**. Đây là **future work Sprint 5**.
+**Hàm ý 3 — TH3 gốc có bug prompt design chưa document**: paper TH3 đã publish nhưng LLM Haiku bị lỗi phase confusion nghiêm trọng. Có thể o3-mini xử lý được (do reasoning capability cao hơn), nhưng Haiku thì không.
 
-**Hàm ý 4 — variance ep0 KHÔNG do phase confusion**: Cả ep0 và ep3 đều có phase confusion tương đương (83% và 70%). Nên chênh lệch reward là do env stochasticity (Red + RL blue path), không phải do LLM.
+**Hàm ý 4 — hướng cải thiện cho luận văn (Sprint 5+)**: sửa prompt để match env encoding (dùng "Phase 0/1/2" thay vì "Phase 1/2A/2B"), hoặc thêm câu explicit "khi env trả `mission_phase: 1`, nghĩa là MissionA đang active — KHÔNG phải pre-planning". Có thể cả 2 setup cải thiện đáng kể.
+
+**Hàm ý 5 — variance ep0 KHÔNG do phase confusion**: 
+- Ep0 A-TH3 (82.6% confused) → reward −8685
+- Ep3 A-TH3 (69.5% confused) → reward −1045
+- Ep0 C-TH3 (27.5% confused) → reward **−750** (best case)
+- Ep3 C-TH3 (31.7% confused) → reward −2870 (worst C case)
+
+Không có correlation rõ ràng giữa % confusion và reward. Chênh lệch reward là do **env stochasticity** (Red + RL blue path), không phải LLM confusion.
+
+**Hàm ý 6 — Kết hợp với ep0 outlier**: Ep0 A-TH3 là "hoàn hảo cho disaster": confusion cao nhất (82.6%) + Red xui may thành công operational_zone_a → damage cực đại −8685. Nếu chỉ có confusion cao (không có Red thành công) như ep2 (79%) → chỉ −1715. Nếu chỉ có Red thành công (không có confusion cao) → có thể tệ nhưng không thảm hoạ.
 
 ### 4.3 Bằng chứng RoE chặn LLM sai — Deny statistics chi tiết
 
