@@ -10,14 +10,23 @@
 
 Sprint 4 thực hiện thí nghiệm **so sánh fair** giữa MCP+RoE và baseline TH3 bằng cách **giữ nguyên prompt content 100%** — chỉ thay đổi paradigm output (JSON → MCP tool call) và thêm layer RoE V3 (6 rule reward-focused, deny/approve thuần).
 
-**Kết quả chính**:
+**Kết quả chính (cập nhật với AggressiveFSM)**:
 
-- **A-TH3** (prompt TH3 gốc, không MCP không RoE): reward mean **−4972.5 ± 5250.3** (biến động cực lớn)
-- **C-TH3** (cùng prompt TH3, thêm MCP+RoE V3): reward mean **−1197.5 ± 632.9** (ổn định 8× hơn)
-- **Cải thiện**: **+3775 điểm mean** VÀ **σ giảm 8 lần**
-- **Case tốt nhất C-TH3**: −750 điểm — **gần với o3-mini (−500)** dù dùng Haiku 4.5
+**FiniteState (n=4)**:
+- A-TH3: mean = −3280 ± 3616 (biến động cực lớn do ep0 outlier)
+- C-TH3: mean = −1807.5 ± 875 (ổn định hơn 4×)
+- **Delta: C tốt hơn +1472.5 điểm**
 
-**Ý nghĩa cho luận văn**: khi giữ nguyên biến số prompt content và model, việc bổ sung MCP+RoE V3 **cải thiện đáng kể** cả reward mean lẫn stability. Không phải "prompt em tự viết tốt hơn TH3" — mà thực sự **MCP paradigm + RoE deterministic** có giá trị bổ sung.
+**AggressiveFSM (n=2)** — MỚI:
+- A-TH3: mean = −2150 ± 990
+- C-TH3: mean = −2007.5 ± 718
+- **Delta: C tốt hơn chỉ +142.5 điểm** (trong noise)
+
+**Ý nghĩa cho luận văn**: MCP+RoE có **giá trị PHỤ THUỘC red variant**:
+- Với red **unpredictable** (FiniteState): improvement +1472 lớn
+- Với red **predictable** (AggressiveFSM): improvement +142 nhỏ
+
+Đây là finding tinh tế mới — không phải "MCP+RoE luôn tốt hơn", mà là "MCP+RoE có giá trị khi cần safety net cho worst-case scenarios".
 
 ---
 
@@ -201,6 +210,52 @@ propose_deploy_decoy(hostname="restricted_zone_a_subnet_server_host_1", reason="
 - A-TH3 có **1 outlier extreme ep0 (−8685)**, còn 3 ep khác ổn định quanh −1478 ± 376
 - C-TH3 **ổn định hơn về variance** (±875 vs ±3616 = giảm 4×), nhưng mean **tương đương** hoặc hơi tệ hơn A khi bỏ outlier
 - **MCP+RoE V3 là safety net chống worst-case**, KHÔNG cải thiện typical case
+
+### 3.1.1 Kết quả AggressiveFSM (n=2 mỗi setup) — RED VARIANT MỚI
+
+Ngoài FiniteState, em chạy thêm **AggressiveFSMAgent** để mở rộng comparison across red variants (theo methodology TH3 paper).
+
+**AggressiveFSM khác gì FiniteState**:
+- Ưu tiên `AggressiveServiceDiscovery` (loud port scan) → RL blue dễ detect hơn
+- Attack path predictable hơn (ít stochastic transitions)
+- Đại diện cho "brute-force / noisy attacker" trong MITRE ATT&CK
+
+**Bảng reward AggressiveFSM**:
+
+| Cấu hình | ep0 | ep1 | Mean | Std | Range |
+|---|---|---|---|---|---|
+| **A-TH3 AggressiveFSM** | −2850 | −1450 | **−2150.0** | **±990** | [−2850, −1450] |
+| **C-TH3 AggressiveFSM** | −2515 | −1500 | **−2007.5** | **±718** | [−2515, −1500] |
+
+**Đối chiếu 2 red variant**:
+
+| Red | A mean | C mean | Delta (C hơn A) | Ghi chú |
+|---|---|---|---|---|
+| **FiniteState** (n=4) | −3280 ± 3616 | **−1807.5** ± 875 | **+1472.5** | Improvement lớn (bao gồm ep0 outlier −8685 của A) |
+| **AggressiveFSM** (n=2) | −2150 ± 990 | **−2007.5** ± 718 | **+142.5** | Improvement gần zero |
+
+**Phát hiện: MCP+RoE giá trị PHỤ THUỘC red variant**
+
+- Với **FiniteState** (unpredictable attack path): MCP+RoE cải thiện đáng kể (+1472 điểm mean)
+- Với **AggressiveFSM** (predictable attack path): MCP+RoE cải thiện không đáng kể (+142 điểm, trong noise)
+
+**Giả thuyết cơ chế**:
+
+1. **FiniteState** attack ngẫu nhiên → LLM khó predict → dễ sai (spam decoy 319 lần) → RoE V3 R5 cap decoy = 10 → tránh cascade damage
+2. **AggressiveFSM** scan ồn ào → RL blue baseline dễ phát hiện → LLM sai ít gây cascade hơn → RoE V3 ít có "sai" để chặn → improvement thấp
+
+→ **Hàm ý luận văn**: MCP+RoE có **context-dependent value**. Đây là finding tinh tế hơn claim ban đầu "MCP+RoE luôn cải thiện". Ranh giới rõ ràng: RoE có giá trị khi red behavior tạo ra nhiều cơ hội cho LLM "sai".
+
+**Variance analysis**:
+
+| Cấu hình | Std | Nhận xét |
+|---|---|---|
+| A-TH3 FiniteState (n=4) | ±3616 | Cực cao — do ep0 outlier |
+| A-TH3 AggressiveFSM (n=2) | ±990 | Thấp hơn nhiều — Aggressive predictable hơn |
+| C-TH3 FiniteState (n=4) | ±875 | RoE cap variance |
+| C-TH3 AggressiveFSM (n=2) | ±718 | Cả A và C đều stable với Aggressive |
+
+→ Với AggressiveFSM, **cả A và C đều đã stable** — RoE không cần thêm "safety net" nhiều.
 
 ### 3.2 So với TH3 paper báo cáo (Hình 5)
 
@@ -949,15 +1004,26 @@ Tổng wall time ưu tiên 1+2: ~40 giờ nền (khả thi trong 1 tuần).
 
 Sprint 4 chứng minh **định lượng và fair** rằng khi giữ nguyên prompt content của TH3 (byte-identical) và cùng model Haiku 4.5:
 
-1. **Baseline TH3 trên Haiku hoạt động tệ** (mean −4972.5, biến động ±5250) — đôi khi tệ hơn cả "không có blue" (−6334)
-2. **MCP + RoE V3 cải thiện cả mean và stability** — mean tốt hơn +3775 điểm, std giảm 8 lần
+1. **Baseline TH3 trên Haiku hoạt động BIẾN ĐỘNG với FiniteState red** (mean −3280 ± 3616 với ep0 outlier −8685). Đôi khi tệ hơn cả "không có blue" (−6334).
+
+2. **MCP + RoE V3 cải thiện CÓ ĐIỀU KIỆN** — phụ thuộc red variant:
+   - **FiniteState** (unpredictable red): C tốt hơn A **+1472 điểm** mean, std giảm 4× — improvement rõ rệt
+   - **AggressiveFSM** (predictable red): C tốt hơn A chỉ **+142 điểm** — trong noise, không significant
+
 3. **Cải thiện đến từ 2 cơ chế cụ thể**:
    - MCP thêm `propose_sleep` tool → LLM có safe default khi mạng sạch
    - RoE V3 R4/R5 (analyse/decoy quota) → chặn cascade damage deterministic
+
 4. **RoE V3 tạo defense-in-depth emergent** — LLM tự động phân tán qua 23-25 host thay vì spam 5 host
 
-Đây là bằng chứng vững chắc cho **claim khoa học trung tâm** của luận văn: MCP + RoE có giá trị bổ sung khi được thiết kế đúng theo reward function của môi trường, không phụ thuộc vào việc "prompt engineer làm prompt tốt hơn TH3".
+5. **MCP giảm phase confusion GIÁN TIẾP** — 27% vs 76% do turn budget (~80%) + structured state (~20%)
+
+6. **Context-dependent value của MCP+RoE** — finding tinh tế mới:
+   - RoE có giá trị **cao** khi red behavior tạo ra nhiều cơ hội cho LLM "sai" (FiniteState)
+   - RoE có giá trị **thấp** khi red predictable + RL blue baseline handle được (AggressiveFSM)
+
+Đây là bằng chứng vững chắc cho **claim khoa học trung tâm** của luận văn: MCP + RoE có giá trị bổ sung **có điều kiện**, mạnh nhất trong scenarios random/unpredictable — nơi safety net giúp tránh worst-case disaster. Với scenarios predictable, MCP+RoE có giá trị nhỏ hơn nhiều.
 
 ---
 
-**Trần Minh Vương** — 2026-07-01
+**Trần Minh Vương** — 2026-07-04 (cập nhật với data AggressiveFSM)

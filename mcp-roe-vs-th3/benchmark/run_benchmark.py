@@ -323,6 +323,8 @@ def run_single_episode(setup: str, red_variant: str, episode_idx: int, seed: int
 
     os.environ["AUDIT_LOG_PATH"] = str(audit_path)
     os.environ["DETAILED_LOG_PATH"] = str(detailed_path)
+    os.environ["RED_VARIANT"] = red_variant
+    os.environ["EPISODE_SEED"] = str(seed)
 
     # Resume từ checkpoint nếu có
     ckpt = load_checkpoint(tag)

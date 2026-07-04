@@ -109,6 +109,8 @@ class ClaudeDefenderPolicy(Policy):
             "mcp_enabled": self.mcp_enabled,
             "roe_enabled": self.roe_enabled,
             "setup": "C-TH3" if self.mcp_enabled else "A-TH3",
+            "red_variant": os.environ.get("RED_VARIANT", "unknown"),
+            "seed": int(os.environ.get("EPISODE_SEED", "0")),
             "model": DEFAULT_MODEL,
             "audit_csv_path": str(audit_path),
             "system_prompt_hash": str(hash(self.system_prompt))[:16],
