@@ -10,23 +10,20 @@
 
 Sprint 4 thực hiện thí nghiệm **so sánh fair** giữa MCP+RoE và baseline TH3 bằng cách **giữ nguyên prompt content 100%** — chỉ thay đổi paradigm output (JSON → MCP tool call) và thêm layer RoE V3 (6 rule reward-focused, deny/approve thuần).
 
-**Kết quả chính (cập nhật với AggressiveFSM)**:
+**Kết quả chính (3 red variants, n≥2 mỗi setup)**:
 
-**FiniteState (n=4)**:
-- A-TH3: mean = −3280 ± 3616 (biến động cực lớn do ep0 outlier)
-- C-TH3: mean = −1807.5 ± 875 (ổn định hơn 4×)
-- **Delta: C tốt hơn +1472.5 điểm**
+| Red variant | A-TH3 mean ± std | C-TH3 mean ± std | Delta (winner) |
+|---|---|---|---|
+| **FiniteState** (n=4) | −3280 ± 3616 | **−1807.5 ± 875** | **C hơn A +1472.5** ✅ |
+| **AggressiveFSM** (n=2) | −2150 ± 990 | **−2007.5 ± 718** | C hơn A +142.5 (noise) ⚠️ |
+| **StealthyFSM** (n=2) | **−960 ± 290** | −1377.5 ± 909 | **A hơn C +417.5** ❌ |
 
-**AggressiveFSM (n=2)** — MỚI:
-- A-TH3: mean = −2150 ± 990
-- C-TH3: mean = −2007.5 ± 718
-- **Delta: C tốt hơn chỉ +142.5 điểm** (trong noise)
+**Ý nghĩa cho luận văn**: MCP+RoE có **giá trị BA-KỊCH-BẢN theo red variant**:
+- Red **unpredictable** (FiniteState): improvement +1472 → **rất tốt**
+- Red **predictable** (AggressiveFSM): improvement +142 → **neutral**
+- Red **stealth/slow** (StealthyFSM): improvement −417 → **counter-productive**
 
-**Ý nghĩa cho luận văn**: MCP+RoE có **giá trị PHỤ THUỘC red variant**:
-- Với red **unpredictable** (FiniteState): improvement +1472 lớn
-- Với red **predictable** (AggressiveFSM): improvement +142 nhỏ
-
-Đây là finding tinh tế mới — không phải "MCP+RoE luôn tốt hơn", mà là "MCP+RoE có giá trị khi cần safety net cho worst-case scenarios".
+Đây là finding tinh tế: RoE V3 với `MAX_DECOYS_TOTAL=10` **overfit cho FiniteState**. Với Stealthy, spam decoy hoạt động như "rải thảm bẫy" — cap 10 làm mất khả năng detect. Cần **adaptive RoE** trong tương lai.
 
 ---
 
@@ -256,6 +253,91 @@ Ngoài FiniteState, em chạy thêm **AggressiveFSMAgent** để mở rộng com
 | C-TH3 AggressiveFSM (n=2) | ±718 | Cả A và C đều stable với Aggressive |
 
 → Với AggressiveFSM, **cả A và C đều đã stable** — RoE không cần thêm "safety net" nhiều.
+
+### 3.1.2 Kết quả StealthyFSM (n=2 mỗi setup) — RED VARIANT THỨ 3
+
+Ngoài FiniteState (random) và AggressiveFSM (loud), em chạy thêm **StealthyFSMAgent** — kẻ tấn công **lén lút chậm**.
+
+**StealthyFSM khác gì**:
+- Ưu tiên `StealthServiceDiscovery` (quiet port scan) thay vì `AggressiveServiceDiscovery`
+- Attack chậm hơn nhiều — cần nhiều step để khám phá target
+- Đại diện cho "advanced persistent threat" (APT) — kiên nhẫn, khó phát hiện
+
+**Bảng reward StealthyFSM**:
+
+| Cấu hình | ep0 | ep1 | Mean | Std | Range |
+|---|---|---|---|---|---|
+| **A-TH3 StealthyFSM** | **−755** ⭐ | −1165 | **−960.0** | **±290** | [−1165, −755] |
+| **C-TH3 StealthyFSM** | −2020 | −735 | **−1377.5** | **±909** | [−2020, −735] |
+
+**Delta**: A tốt hơn C **+417.5 điểm** — **ĐẢO NGƯỢC** so với FiniteState!
+
+**Bức tranh toàn cảnh 3 red variants**:
+
+| Red variant | A mean ± std | C mean ± std | Delta (winner) |
+|---|---|---|---|
+| **FiniteState** (n=4) | −3280 ± 3616 | **−1807.5 ± 875** | **C hơn A +1472.5** ✅ |
+| **AggressiveFSM** (n=2) | −2150 ± 990 | **−2007.5 ± 718** | C hơn A +142.5 (noise) ⚠️ |
+| **StealthyFSM** (n=2) | **−960 ± 290** | −1377.5 ± 909 | **A hơn C +417.5** ❌ |
+
+#### Phát hiện — MCP+RoE có 3 kịch bản khác nhau
+
+**Setup A hành vi Y HỆT nhau ở cả 3 red** (Sleep 0-1, Decoy 315-319, Analyse 181-184) → LLM Haiku không "biết" đang bị red variant nào tấn công. Reward chênh do **red attack effectiveness** khác nhau.
+
+**Setup C với RoE V3 (MAX_DECOYS_TOTAL=10)**:
+- FiniteState random → cap decoy chặn cascade → **tốt**
+- AggressiveFSM predictable → RL blue baseline handle được → **neutral**
+- StealthyFSM slow → nhiều decoy hoạt động như **rải thảm bẫy** → cap 10 làm mất khả năng detect → **XẤU**
+
+#### Cơ chế cụ thể vì sao StealthyFSM DỄ chống với A-TH3
+
+Action distribution A-TH3 StealthyFSM ep0:
+```
+Sleep:            1
+Analyse:        184
+DeployDecoy:    315   ← "rải thảm bẫy"
+# host distinct:  8
+```
+
+**StealthyFSM behavior**:
+- Quét chậm bằng `StealthServiceDiscovery` (quiet scan) → cần nhiều step để enumerate targets
+- Mỗi lần scan có thể vô tình chạm decoy
+- **315 decoy phân bố trên 8 host** = mật độ bẫy cực dày
+- StealthyFSM chạm bẫy → Blue biết → RL blue restore
+
+→ Setup A "may mắn" spam decoy đúng lúc StealthyFSM chậm chạm → damage ít.
+
+**C-TH3 với RoE R5 cap 10 decoy**:
+```
+Sleep:          456
+Analyse:         34
+DeployDecoy:     10   ← RoE cap
+# host distinct: 20
+```
+
+10 decoy phân tán qua 20 host = mật độ bẫy loãng → StealthyFSM có nhiều "kẽ hở" đi vòng → không chạm bẫy → cuối cùng thâm nhập operational zone → damage cao hơn.
+
+#### Ý nghĩa cho luận văn — RoE V3 CẦN ADAPTIVE
+
+RoE V3 quota `MAX_DECOYS_TOTAL = 10` **overfit cho FiniteState** — hiệu quả trong scenario Red random gây cascade, nhưng gây hại trong scenario Red stealth cần honeypot dày.
+
+**Câu chuyện mới**:
+
+> *"MCP+RoE V3 với hard-coded quota có behavior CONTEXT-DEPENDENT:*
+> *- Red random/fast: RoE cap decoy = giảm cascade damage → cải thiện reward*
+> *- Red stealth/slow: RoE cap decoy = giảm detection coverage → làm hại reward*
+>
+> *→ Sprint 5+: cần **adaptive RoE** — quota decoy dựa trên red behavior signal (vd: nếu nhiều Red scan detected = tăng decoy quota)."*
+
+#### Variance analysis 3 red
+
+| | A-TH3 std | C-TH3 std |
+|---|---|---|
+| FiniteState | ±3616 (do outlier ep0) | ±875 |
+| AggressiveFSM | ±990 | ±718 |
+| **StealthyFSM** | **±290** (thấp nhất!) | **±909** |
+
+→ **StealthyFSM tạo behavior ổn định nhất cho A** (std ±290) vì attack path chậm và predictable. Còn với C, StealthyFSM tạo variance cao nhất (±909) — RoE cap decoy tương tác với Stealthy attack theo cách không ổn định.
 
 ### 3.2 So với TH3 paper báo cáo (Hình 5)
 
@@ -1009,6 +1091,7 @@ Sprint 4 chứng minh **định lượng và fair** rằng khi giữ nguyên pro
 2. **MCP + RoE V3 cải thiện CÓ ĐIỀU KIỆN** — phụ thuộc red variant:
    - **FiniteState** (unpredictable red): C tốt hơn A **+1472 điểm** mean, std giảm 4× — improvement rõ rệt
    - **AggressiveFSM** (predictable red): C tốt hơn A chỉ **+142 điểm** — trong noise, không significant
+   - **StealthyFSM** (slow stealth red): **A tốt hơn C +417 điểm** — MCP+RoE COUNTER-PRODUCTIVE với red này. Nguyên nhân: RoE R5 cap decoy=10 làm mất khả năng "rải thảm bẫy" cần cho detect Stealthy scan chậm.
 
 3. **Cải thiện đến từ 2 cơ chế cụ thể**:
    - MCP thêm `propose_sleep` tool → LLM có safe default khi mạng sạch
@@ -1018,9 +1101,14 @@ Sprint 4 chứng minh **định lượng và fair** rằng khi giữ nguyên pro
 
 5. **MCP giảm phase confusion GIÁN TIẾP** — 27% vs 76% do turn budget (~80%) + structured state (~20%)
 
-6. **Context-dependent value của MCP+RoE** — finding tinh tế mới:
-   - RoE có giá trị **cao** khi red behavior tạo ra nhiều cơ hội cho LLM "sai" (FiniteState)
-   - RoE có giá trị **thấp** khi red predictable + RL blue baseline handle được (AggressiveFSM)
+6. **Context-dependent value của MCP+RoE** — finding tinh tế mới với 3 kịch bản:
+   - RoE có giá trị **CAO** khi red unpredictable → chặn cascade damage (FiniteState +1472)
+   - RoE có giá trị **THẤP** khi red predictable → RL blue baseline handle được (AggressiveFSM +142)
+   - RoE có giá trị **ÂM** khi red stealth → cap decoy làm mất detection coverage (StealthyFSM −417)
+
+7. **RoE V3 cần ADAPTIVE** — hướng cải thiện Sprint 5+:
+   - Hard-coded quota `MAX_DECOYS_TOTAL=10` overfit cho FiniteState
+   - Cần quota động dựa trên red behavior signal (nhiều scan detected → tăng decoy quota)
 
 Đây là bằng chứng vững chắc cho **claim khoa học trung tâm** của luận văn: MCP + RoE có giá trị bổ sung **có điều kiện**, mạnh nhất trong scenarios random/unpredictable — nơi safety net giúp tránh worst-case disaster. Với scenarios predictable, MCP+RoE có giá trị nhỏ hơn nhiều.
 
